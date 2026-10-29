@@ -1,0 +1,11 @@
+/*
+!/.gitignore
+!/CLAUDE.md
+!/settings.json
+!/agents/
+!/hooks/
+!/skills/
+/skills/synced/
+!/plans/
+!/.claude/
+/.claude/settings.local.json

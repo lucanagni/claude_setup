@@ -1,0 +1,188 @@
+{
+  "permissions": {
+	"deny": [
+		"Read(~/.ssh/**)",
+		"Read(~/.gnupg/**)",
+		"Read(~/pwd.txt)",
+		"Read(~/.claude/.credentials.json)", "Read(~/.mozilla/**)",
+		"Read(~/.thunderbird/**)", "Read(~/.local/share/keyrings/**)",
+		"Edit(~/.ssh/**)",
+		"Edit(~/.gnupg/**)",
+		"Edit(~/pwd.txt)",
+		"Edit(~/.claude/.credentials.json)", "Edit(~/.mozilla/**)",
+		"Edit(~/.thunderbird/**)", "Edit(~/.local/share/keyrings/**)"
+	],
+  	"ask":  [
+		"EnterWorktree",
+		"Bash(ssh *)",
+		"Bash(scp *)",
+		"Bash(dangerouslyDisableSandbox:true)"
+	],
+	"allow": [
+		"Read(~/.claude/**)", "Read(~/.gitconfig)", "Read(~/.condarc)",
+		"Read(~/miniconda3/**)", "Read(~/.conda/**)", "Read(~/.cache/**)",
+		"Read(~/.astropy/**)", "Read(~/.config/matplotlib/**)",
+		"Read(~/.ipython/**)", "Read(~/.jupyter/**)", "Read(~/.local/share/jupyter/**)",
+		"Read(~/.Mathematica/**)", "Read(~/.Wolfram/**)",
+		"Read(~/.matlab/**)", "Read(~/.MathWorks/**)", "Read(~/.MATLABConnector/**)",
+		"Read(~/Documents/MATLAB/**)", "Read(~/MATLAB Add-Ons/**)",
+		"Read(~/.texlive2023/**)", "Read(~/.cargo/**)", "Read(~/.rustup/**)",
+		"Read(~/.keras/**)", "Read(~/nltk_data/**)"
+	],
+    "defaultMode": "plan"
+  },
+  "env": { "CONDA_PKGS_DIRS": "/home/luca/.cache/conda-pkgs" },
+  "model": "opus",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/map-status.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/sandbox-bootstrap.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/git-guard.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/bg-guard.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/outside-repo-guard.py"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/hooks/statusline.sh"
+  },
+  "enabledPlugins": {
+    "mattpocock-skills@claude-plugins-official": true
+  },
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": true,
+    "network": {
+      "allowedDomains": [
+        "pypi.org",
+        "files.pythonhosted.org",
+        "*.anaconda.org",
+        "*.anaconda.com",
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+        "bitbucket.org",
+        "gitlab.com",
+        "codeberg.org",
+        "gwosc.org",
+        "*.gwosc.org",
+        "zenodo.org",
+        "arxiv.org",
+        "*.arxiv.org",
+        "inspirehep.net",
+		"mathworks.com", 
+		"*.mathworks.com"
+      ],
+	  "allowAllUnixSockets": true
+    },
+    "filesystem": {
+   	  "denyRead": [
+        "~/",
+        "~/.claude/.credentials.json",
+        "/run/user/1000",
+        "/tmp/.X11-unix",
+        "/tmp/.ICE-unix",
+        "/run/dbus/system_bus_socket"
+      ],
+	  "allowRead": [
+        "~/.claude",
+        "~/.gitconfig",
+        "~/.condarc",
+        "~/miniconda3",
+        "~/.conda",
+        "~/.cache",
+        "~/.astropy",
+        "~/.config/matplotlib",
+        "~/.config/git",
+        "~/.ipython",
+        "~/.jupyter",
+        "~/.local/share/jupyter",
+        "~/.Mathematica",
+        "~/.Wolfram",
+        "~/.matlab",
+        "~/.MathWorks",
+        "~/.MATLABConnector",
+        "~/Documents/MATLAB",
+        "~/MATLAB Add-Ons",
+        "~/.texlive2023",
+        "~/.cargo",
+        "~/.rustup",
+        "~/.keras",
+        "~/nltk_data"
+      ],
+      "allowWrite": [
+        "~/.conda",
+        "~/.cache",
+        "~/.astropy",
+        "~/.config/matplotlib",
+        "~/.ipython",
+        "~/.jupyter",
+        "~/.local/share/jupyter",
+        "~/.Mathematica",
+        "~/.Wolfram",
+        "~/.matlab",
+        "~/.MathWorks",
+        "~/.MATLABConnector",
+        "~/.texlive2023",
+        "/tmp/MathLink",
+        "/tmp/.mathworks-1000",
+        "/tmp/MathWorks-1000"
+      ],
+	  "denyWrite": [
+        "~/.ipython/profile_default/startup",
+        "~/.ipython/profile_default/ipython_config.py",
+        "~/.ipython/profile_default/ipython_kernel_config.py",
+        "~/.jupyter/jupyter_server_config.py",
+        "~/.jupyter/jupyter_lab_config.py",
+        "~/.jupyter/jupyter_notebook_config.py",
+        "~/.Mathematica/Kernel",
+        "~/.Mathematica/Autoload",
+        "~/.Mathematica/Applications"
+      ]
+    },
+    "excludedCommands": []
+  },
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "medium"
+    }
+  },
+  "theme": "dark-daltonized"
+}
