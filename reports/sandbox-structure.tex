@@ -1,0 +1,158 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=1.8cm]{geometry}
+\usepackage{xcolor,booktabs,tabularx,array,enumitem}
+\usepackage[hyphens]{url}
+\usepackage[colorlinks=true,linkcolor=black,urlcolor=black]{hyperref}
+
+\definecolor{blk}{HTML}{C0392B}
+\definecolor{ask}{HTML}{D68910}
+\definecolor{fre}{HTML}{1E8449}
+\newcommand{\BLK}{\colorbox{blk!20}{\textcolor{blk}{\textbf{\strut BLOCKED}}}}
+\newcommand{\ASK}{\colorbox{ask!20}{\textcolor{ask}{\textbf{\strut PROMPT}}}}
+\newcommand{\FRE}{\colorbox{fre!20}{\textcolor{fre}{\textbf{\strut FREE}}}}
+\newcommand{\p}[1]{\nolinkurl{#1}}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\setlist{nosep,leftmargin=*}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.25}
+
+\title{Claude Code sandbox: structure and access rules}
+\author{\texttt{\textasciitilde/.claude} @ \texttt{6a1da04} + uncommitted fixes}
+\date{2026-10-29}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{Goal.} Claude works freely in the current repo. Anything else in \texttt{\textasciitilde} needs your
+approval. Secrets and the sockets that could escape the sandbox stay unreachable, whatever you approve.
+Two threats are covered: Claude's mistakes and hostile code that Claude runs.
+
+\noindent\textbf{Legend.}\\
+\BLK\ no approval opens it (only a manual settings edit) \quad
+\ASK\ you approve it each time \quad \FRE\ no prompt.
+
+\section{Layers and how they connect}
+Each tool call passes through the layers that apply to it. A call is allowed only if every layer allows it.
+
+\begin{tabularx}{\linewidth}{@{}l l L@{}}
+\toprule
+\textbf{Layer} & \textbf{Applies to} & \textbf{What it does} \\
+\midrule
+1. Permission rules & all tools & \texttt{deny} > \texttt{ask} > \texttt{allow}. Secrets are denied for Read and Edit; toolchain
+  reads are allowed; \texttt{ask} on \p{EnterWorktree}, \p{ssh}, \p{scp}, unsandboxed Bash. \\
+2. PreToolUse hooks & Bash, Agent, Edit, Write & \p{git-guard.py}: branches and worktrees prompt.
+  \p{outside-repo-guard.py}: edits outside the repo, in \p{.git/} or in Claude's config prompt.
+  \p{bg-guard.py}: background jobs may not edit existing files. \\
+3. Sandbox (bubblewrap) & Bash only & Own mount, PID and network namespaces. The filesystem is limited to the repo,
+  toolchain dirs and \p{$TMPDIR}. Rules are re-read live from settings. \\
+4. Network proxy & sandboxed Bash & Only \p{allowedDomains} pass freely; other hosts prompt (manual mode) or go to the
+  auto-mode classifier. \\
+5. SessionStart hook & each session & \p{sandbox-bootstrap.sh} adds the repo path to \p{allowRead} in the repo's
+  \p{.claude/settings.local.json} and keeps that file out of git. \\
+\bottomrule
+\end{tabularx}
+
+\medskip\noindent
+\textbf{Key asymmetry.} The sandbox wraps \emph{Bash only}. The Read, Edit and Write tools are not sandboxed; for them,
+layers 1 and 2 are the whole defence. That is why secrets have both a sandbox deny and a permission deny, and why
+\p{outside-repo-guard.py} exists.
+
+\section{\BLK\ Always blocked}
+\begin{tabularx}{\linewidth}{@{}L l l@{}}
+\toprule
+\textbf{Path} & \textbf{Bash (sandbox)} & \textbf{Read/Edit tools} \\
+\midrule
+\p{~/.ssh}, \p{~/.gnupg}, \p{~/.local/share/keyrings}, \p{~/pwd.txt}, \p{~/.claude/.credentials.json}
+  & denied & denied \\
+Browser and mail: \p{~/.mozilla}, \p{~/.thunderbird}, \p{~/.cache/{mozilla,librewolf,thunderbird,evolution,aerc}}
+  & denied & denied \\
+Escape sockets: \p{/run/user/1000} (sway, systemd, D-Bus session, ssh agent), \p{/tmp/.X11-unix}, \p{/tmp/.ICE-unix},
+  \p{/run/dbus/system_bus_socket}, \p{/tmp/.mathworks-1000}
+  & denied & n/a \\
+Abstract-namespace sockets (X11, session bus) & refused (own net ns) & n/a \\
+Other processes via \p{/proc/<pid>/root} & own PID ns & n/a \\
+\bottomrule
+\end{tabularx}
+
+\subsection*{Blocked for Bash only (the file tools prompt instead)}
+\begin{tabularx}{\linewidth}{@{}L L@{}}
+\toprule
+\textbf{Path} & \textbf{Why} \\
+\midrule
+\p{<repo>/.git/hooks}, \p{<repo>/.git/config}, \p{~/.claude/{settings.json,hooks,skills,agents,CLAUDE.md,...}}
+  & read-only mounts (built in): they run code outside the sandbox \\
+\p{~/.ipython/profile_default/{startup, ipython_config.py/.json, ipython_kernel_config.py/.json}}
+  & \p{denyWrite}: run at IPython start \\
+\p{~/.jupyter/jupyter_{server,lab,notebook}_config.{py,json}}, \p{~/.jupyter/custom},
+\p{~/.local/share/jupyter/{kernels,labextensions,nbextensions}}
+  & \p{denyWrite}: run at Jupyter or kernel start \\
+\p{~/.Mathematica/{Kernel,Autoload,Applications,FrontEnd/init.m,Paclets/Repository}}
+  & \p{denyWrite}: run at kernel or front-end start \\
+\p{~/.matlab/R2024a/javaclasspath.txt} & \p{denyWrite}: loads classes ahead of MATLAB's \\
+Everything else in \p{~} not listed in Section 4 & \p{denyRead}\ \p{~/} \\
+\bottomrule
+\end{tabularx}
+
+\section{\ASK\ Needs your authorization}
+\begin{tabularx}{\linewidth}{@{}L l L@{}}
+\toprule
+\textbf{Action} & \textbf{Mechanism} & \textbf{Notes} \\
+\midrule
+Read tool outside the working dirs and the allow list & Claude Code default & prompts in auto mode too \\
+Edit/Write outside the repo, \p{/tmp/claude-1000}, memory and plans & \p{outside-repo-guard.py} & \texttt{ask} overrides the auto classifier \\
+Edit/Write in any \p{.git/} or in Claude's hooks/settings/skills/agents/\p{CLAUDE.md} & \p{outside-repo-guard.py} & even inside the repo \\
+Unsandboxed Bash (\p{dangerouslyDisableSandbox}) & ask rule & runs with your full rights \\
+\p{ssh}, \p{scp} & ask rule & fail in the sandbox anyway (no \p{~/.ssh}) \\
+Create, move or delete a git branch or worktree; \p{EnterWorktree}; Agent in a worktree & \p{git-guard.py}, ask rule & \\
+Network host not in \p{allowedDomains} & proxy & manual mode: you. Auto mode: classifier (accepted) \\
+Edit of a repo's \p{.claude/settings.local.json} & built-in protection & the permanent grant route \\
+\bottomrule
+\end{tabularx}
+
+\section{\FRE\ Free}
+\begin{tabularx}{\linewidth}{@{}l L@{}}
+\toprule
+\textbf{Access} & \textbf{Where} \\
+\midrule
+Read + write & the current repo (Bash via the bootstrap grant; file tools via the working dir) \\
+Read + write & \p{$TMPDIR} = \p{/tmp/claude-1000}; file tools also \p{~/.claude/projects}, \p{~/.claude/plans} \\
+Read & \p{~/.gitconfig}, \p{~/.config/git}, \p{~/.condarc}, \p{~/miniconda3}, \p{~/.cargo}, \p{~/.rustup}, \p{~/.keras},
+  \p{~/nltk_data}, \p{~/Documents/MATLAB}, \p{~/MATLAB}\ \p{Add-Ons}, \p{~/.claude}, and the write list below \\
+Read + write & \p{~/.conda}, \p{~/.cache} (pip: \p{claude-pip}, conda: \p{conda-pkgs}), \p{~/.astropy},
+  \p{~/.config/matplotlib}, \p{~/.ipython}, \p{~/.jupyter}, \p{~/.local/share/jupyter}, \p{~/.Mathematica},
+  \p{~/.Wolfram}, \p{~/.matlab}, \p{~/.MathWorks}, \p{~/.MATLABConnector}, \p{~/.texlive2023},
+  \p{/tmp/MathLink}, \p{/tmp/MathWorks-1000} (minus Section 2) \\
+Network & PyPI, Anaconda, GitHub, GitLab, Bitbucket, Codeberg, GWOSC, Zenodo, arXiv, INSPIRE, MathWorks \\
+Unix sockets & any reachable path (\p{allowAllUnixSockets}, needed by MATLAB): leaves snapd, cups, avahi, journal, \dots \\
+\bottomrule
+\end{tabularx}
+
+\section{Escalation when Bash is blocked}
+Claude stops, names the path or host and why it needs it, then offers, in this order:
+\begin{enumerate}
+\item \textbf{Session:} you type \p{/add-dir}\ \p{<path>}. Opens reads and writes until the session ends.
+\item \textbf{Permanent:} a prompted edit adding the path to \p{allowRead}/\p{allowWrite} in the repo's
+  \p{.claude/settings.local.json}. Takes effect immediately.
+\item \textbf{Unsandboxed retry:} only for git remote operations over ssh, or as a last resort you agree to. Always prompts.
+\end{enumerate}
+Claude never works around a block (copying files into the repo, other tools, other paths).
+
+\section{Accepted risks}
+\begin{itemize}
+\item An approved unsandboxed retry has your full rights: secrets, sockets, and git hooks run unsandboxed.
+  Read the command before approving.
+\item In auto mode, the classifier, not you, may approve new network hosts.
+\item Connectable system sockets (snapd, cups, avahi, acpid, journal, uuidd, userdb): no code execution without polkit,
+  which is unreachable.
+\item \p{~/.matlab/credentials} is readable: MATLAB's online licensing needs it.
+\item Package caches (\p{conda-pkgs}, \p{claude-pip}) can be poisoned, but only envs that Claude creates use them.
+\end{itemize}
+
+\section{Open questions}
+\begin{itemize}
+\item Does \p{/add-dir}\ \p{~} or an \p{allowRead} entry beat the specific \p{~/.ssh} deny? Untested.
+\item A second \p{matlab}\ \p{-batch} in the same Bash call hangs at the MathWorks login prompt; one per call works.
+\end{itemize}
+
+\end{document}

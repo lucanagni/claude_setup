@@ -8,4 +8,5 @@
 /skills/synced/
 !/plans/
 !/.claude/
+!/reports/
 /.claude/settings.local.json

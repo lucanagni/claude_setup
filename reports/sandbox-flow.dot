@@ -1,0 +1,130 @@
+// Claude Code sandbox: decision flow for one tool call.
+// Render: dot -Tpdf sandbox-flow.dot -o sandbox-flow.pdf ; dot -Tsvg sandbox-flow.dot -o sandbox-flow.svg
+digraph sandbox {
+  graph [rankdir=TB, fontname="Helvetica", nodesep=0.25, ranksep=0.35, newrank=true,
+         label="Claude Code sandbox: what happens to a tool call  (~/.claude @ 6a1da04 + uncommitted fixes, 2026-10-29)",
+         labelloc=t, fontsize=16];
+  node  [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", fillcolor="#FFFFFF", color="#555555"];
+  edge  [fontname="Helvetica", fontsize=9, color="#555555"];
+
+  node [margin="0.12,0.06"];
+
+  start [label="Claude makes a tool call", shape=box, style="rounded,filled,bold", fillcolor="#E8E8E8"];
+  kind  [label="Which tool?", shape=diamond, style=filled, fillcolor="#F2F2F2", fontsize=11];
+  start -> kind;
+
+  // ---------------- Bash ----------------
+  subgraph cluster_bash {
+    label="Bash  (the only tool inside the sandbox)"; style="rounded,dashed"; color="#888888"; fontsize=12;
+
+    b_unsb [label="dangerouslyDisableSandbox?", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    b_unsb_ask [label="PROMPT  (ask rule, all modes)\nIf approved: runs with your full rights:\nsecrets, sockets and git hooks reachable", fillcolor="#FDE9B8", color="#D68910"];
+    b_git [label="git-guard.py: creates / moves / deletes\na branch or worktree?  ssh / scp?", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    b_git_ask [label="PROMPT", fillcolor="#FDE9B8", color="#D68910"];
+    b_run [label="Runs in bubblewrap\nown mount + PID + network namespace", style="rounded,filled,bold", fillcolor="#E8E8E8"];
+
+    b_unsb -> b_unsb_ask [label="yes"];
+    b_unsb -> b_git [label="no"];
+    b_git -> b_git_ask [label="yes"];
+    b_git -> b_run [label="no / approved"];
+
+    // read
+    r_q1 [label="READ\nsecret or escape path?\n~/.ssh  ~/.gnupg  keyrings  pwd.txt  .credentials.json\n~/.mozilla  ~/.thunderbird  ~/.cache/{mozilla,librewolf,\nthunderbird,evolution,aerc}\n/run/user/1000  X11/ICE  system D-Bus  /tmp/.mathworks-1000", shape=box, style="filled", fillcolor="#F2F2F2"];
+    r_blk [label="BLOCKED", fillcolor="#F4C7C3", color="#C0392B"];
+    r_q2 [label="repo, toolchain dir, $TMPDIR,\n/add-dir path, settings.local allowRead,\nor outside ~ (/usr, /etc, ...)?", shape=box, style="filled", fillcolor="#F2F2F2"];
+    r_free [label="FREE", fillcolor="#CDEBD3", color="#1E8449"];
+    r_home [label="BLOCKED  (denyRead ~/)\n-> escalate", fillcolor="#F4C7C3", color="#C0392B"];
+
+    // write
+    w_q1 [label="WRITE\nread-only or denyWrite?\n.git/hooks  .git/config  Claude config\nIPython/Jupyter configs + kernels\nMathematica init/Kernel/Paclets\nMATLAB javaclasspath.txt", shape=box, style="filled", fillcolor="#F2F2F2"];
+    w_blk [label="BLOCKED", fillcolor="#F4C7C3", color="#C0392B"];
+    w_q2 [label="repo, $TMPDIR, toolchain state dir,\n/add-dir path, settings.local allowWrite?", shape=box, style="filled", fillcolor="#F2F2F2"];
+    w_free [label="FREE", fillcolor="#CDEBD3", color="#1E8449"];
+    w_else [label="BLOCKED\n-> escalate", fillcolor="#F4C7C3", color="#C0392B"];
+
+    // network
+    n_q1 [label="NETWORK\nhost in allowedDomains?\n(PyPI, Anaconda, GitHub, GitLab, ...,\narXiv, Zenodo, GWOSC, MathWorks)", shape=box, style="filled", fillcolor="#F2F2F2"];
+    n_free [label="FREE", fillcolor="#CDEBD3", color="#1E8449"];
+    n_ask [label="PROMPT (manual mode)\nauto mode: classifier decides", fillcolor="#FDE9B8", color="#D68910"];
+
+    // sockets
+    s_q1 [label="UNIX SOCKET\nabstract namespace,\nor in a denied path?", shape=box, style="filled", fillcolor="#F2F2F2"];
+    s_blk [label="BLOCKED", fillcolor="#F4C7C3", color="#C0392B"];
+    s_free [label="FREE  (allowAllUnixSockets)\nsnapd, cups, avahi, journal, ...\naccepted: no polkit reachable", fillcolor="#CDEBD3", color="#1E8449"];
+
+    b_run -> r_q1; b_run -> w_q1; b_run -> n_q1; b_run -> s_q1;
+    r_q1 -> r_blk [label="yes"]; r_q1 -> r_q2 [label="no"];
+    r_q2 -> r_free [label="yes"]; r_q2 -> r_home [label="no (rest of ~)"];
+    w_q1 -> w_blk [label="yes"]; w_q1 -> w_q2 [label="no"];
+    w_q2 -> w_free [label="yes"]; w_q2 -> w_else [label="no"];
+    n_q1 -> n_free [label="yes"]; n_q1 -> n_ask [label="no"];
+    s_q1 -> s_blk [label="yes"]; s_q1 -> s_free [label="no"];
+  }
+
+  // ---------------- Read / Grep / Glob ----------------
+  subgraph cluster_read {
+    label="Read / Grep / Glob  (not sandboxed)"; style="rounded,dashed"; color="#888888"; fontsize=12;
+    t_q1 [label="permission deny rule?\nsecrets, browser/mail profiles + caches", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    t_blk [label="BLOCKED", fillcolor="#F4C7C3", color="#C0392B"];
+    t_q2 [label="inside working dirs\nor toolchain allow list?", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    t_free [label="FREE", fillcolor="#CDEBD3", color="#1E8449"];
+    t_ask [label="PROMPT\n(also in auto mode)", fillcolor="#FDE9B8", color="#D68910"];
+    t_q1 -> t_blk [label="yes"]; t_q1 -> t_q2 [label="no"];
+    t_q2 -> t_free [label="yes"]; t_q2 -> t_ask [label="no"];
+  }
+
+  // ---------------- Edit / Write ----------------
+  subgraph cluster_edit {
+    label="Edit / Write / NotebookEdit  (not sandboxed)"; style="rounded,dashed"; color="#888888"; fontsize=12;
+    e_q1 [label="permission deny rule?", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    e_blk [label="BLOCKED", fillcolor="#F4C7C3", color="#C0392B"];
+    e_q2 [label="bg-guard.py: background job\nediting an existing file?", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    e_bg [label="BLOCKED\n(jobs only report)", fillcolor="#F4C7C3", color="#C0392B"];
+    e_q3 [label="outside-repo-guard.py:\nin .git/ or Claude hooks/settings/\nskills/agents/CLAUDE.md?", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    e_code [label="PROMPT\n(runs code outside the sandbox)", fillcolor="#FDE9B8", color="#D68910"];
+    e_q4 [label="inside repo, /tmp/claude-1000,\nmemory or plans?", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    e_free [label="FREE\n(normal permission mode applies)", fillcolor="#CDEBD3", color="#1E8449"];
+    e_ask [label="PROMPT\n(classifier can't approve)", fillcolor="#FDE9B8", color="#D68910"];
+    e_q1 -> e_blk [label="yes"]; e_q1 -> e_q2 [label="no"];
+    e_q2 -> e_bg [label="yes"]; e_q2 -> e_q3 [label="no"];
+    e_q3 -> e_code [label="yes"]; e_q3 -> e_q4 [label="no"];
+    e_q4 -> e_free [label="yes"]; e_q4 -> e_ask [label="no"];
+  }
+
+  // ---------------- Worktrees ----------------
+  wt [label="EnterWorktree,\nAgent with worktree isolation", fillcolor="#FFFFFF"];
+  wt_ask [label="PROMPT\n(ask rule / git-guard.py)", fillcolor="#FDE9B8", color="#D68910"];
+  wt -> wt_ask;
+
+  kind -> b_unsb [label="Bash"];
+  kind -> t_q1   [label="Read"];
+  kind -> e_q1   [label="Edit / Write"];
+  kind -> wt     [label="worktree"];
+
+  // ---------------- Escalation ----------------
+  subgraph cluster_esc {
+    label="When Bash is blocked: Claude names the path and why, then offers in order"; style="rounded,filled"; fillcolor="#FAFAFA"; color="#888888"; fontsize=12;
+    x1 [label="1. Session\nyou type /add-dir <path>\n(reads + writes, this session)", fillcolor="#FDE9B8", color="#D68910"];
+    x2 [label="2. Permanent\nprompted edit of the repo's\n.claude/settings.local.json allowRead/allowWrite", fillcolor="#FDE9B8", color="#D68910"];
+    x3 [label="3. Unsandboxed retry\ngit over ssh, or last resort you agree to\n(full rights; re-enters Bash as\ndangerouslyDisableSandbox: ask rule)", fillcolor="#FDE9B8", color="#D68910"];
+    x1 -> x2 -> x3 [style=dashed, label=" if not enough"];
+  }
+  r_home -> x1 [style=dashed, color="#C0392B"];
+  w_else -> x1 [style=dashed, color="#C0392B"];
+
+  // ---------------- Session start ----------------
+  subgraph cluster_ss {
+    label="At session start"; style="rounded,filled"; fillcolor="#FAFAFA"; color="#888888"; fontsize=12;
+    ss [label="sandbox-bootstrap.sh\nadds the repo path to allowRead in\n<repo>/.claude/settings.local.json\n+ keeps that file out of git\n(this is the repo grant used by READ)", fillcolor="#FFFFFF"];
+  }
+
+  // ---------------- Legend ----------------
+  subgraph cluster_legend {
+    label="Legend"; style="rounded"; color="#888888"; fontsize=12;
+    lg_b [label="BLOCKED: no approval opens it", fillcolor="#F4C7C3", color="#C0392B"];
+    lg_a [label="PROMPT: you approve", fillcolor="#FDE9B8", color="#D68910"];
+    lg_f [label="FREE: no prompt", fillcolor="#CDEBD3", color="#1E8449"];
+    lg_b -> lg_a -> lg_f [style=invis];
+  }
+  { rank=same; start; lg_b; ss; }
+}
