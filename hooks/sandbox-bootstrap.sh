@@ -28,6 +28,6 @@ print(f"Sandbox: added {root} to sandbox.filesystem.allowRead in .claude/setting
 EOF
 
 # Keep the personal settings file (it holds an absolute path) out of git.
-git check-ignore -q .claude/settings.local.json 2>/dev/null \
-  || echo ".claude/settings.local.json" >> "$(git rev-parse --git-path info/exclude)"
+git -C "$root" check-ignore -q .claude/settings.local.json 2>/dev/null \
+  || echo ".claude/settings.local.json" >> "$(git -C "$root" rev-parse --path-format=absolute --git-path info/exclude)"
 exit 0

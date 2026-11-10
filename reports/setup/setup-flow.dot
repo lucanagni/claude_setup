@@ -1,0 +1,130 @@
+// Claude Code setup at a glance: session lifecycle (left) and the components it uses (right).
+// Render: dot -Tpdf setup-flow.dot -o setup-flow.pdf ; dot -Tsvg setup-flow.dot -o setup-flow.svg
+digraph setup {
+  graph [rankdir=TB, fontname="Helvetica", nodesep=0.3, ranksep=0.35, newrank=true, compound=true,
+         label="Claude Code setup at a glance  (~/.claude @ a6f9d83 + uncommitted, 2026-10-30)",
+         labelloc=t, fontsize=16];
+  node  [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", fillcolor="#FFFFFF", color="#555555",
+         margin="0.12,0.06"];
+  edge  [fontname="Helvetica", fontsize=9, color="#555555"];
+
+  // ---------------- Session lifecycle ----------------
+  subgraph cluster_life {
+    label="Session lifecycle"; style="rounded,dashed"; color="#888888"; fontsize=12;
+
+    l_start [label="Session start / resume / clear", style="rounded,filled,bold", fillcolor="#E8E8E8"];
+    l_ss    [label="SessionStart hooks\nmap-status.sh: map missing or stale?\nsandbox-bootstrap.sh: repo gets allowRead\nsetup-changes.py (~/.claude): reports stale?", fillcolor="#FDE9B8", color="#D68910"];
+    l_pick  [label="/pickup  (optional)\nread newest handoff, report drift", fillcolor="#D6EAF8", color="#2874A6"];
+    l_plan  [label="Plan mode (default)\nplan = Where / Steps / Decisions / Check / Docs", style="rounded,filled,bold", fillcolor="#E8E8E8"];
+    l_crit  [label="5+ files?\noffer @plan-critic", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    l_ok    [label="Luca approves", shape=diamond, style=filled, fillcolor="#F2F2F2"];
+    l_exec  [label="Execute the plan only\n>3 files: phases, git diff --stat, wait\nnew value or step -> stop and ask", fillcolor="#FFFFFF"];
+    l_call  [label="Each tool call", style="rounded,filled,bold", fillcolor="#E8E8E8"];
+    l_pre   [label="PreToolUse hooks\ngit-guard.py  (Bash|Agent)\nbg-guard.py + outside-repo-guard.py  (Edit|Write)", fillcolor="#FDE9B8", color="#D68910"];
+    l_perm  [label="Permission rules\ndeny > ask > allow", fillcolor="#F2F2F2"];
+    l_sb    [label="Sandbox (Bash only)\nbubblewrap + network proxy\ndetails: reports/sandbox/", fillcolor="#F4C7C3", color="#C0392B"];
+    l_close [label="Close in 1-3 lines:\nwhat changed, what is unverified", fillcolor="#FFFFFF"];
+    l_stop  [label="Stop hook (end of each turn)\nsetup-changes.py (~/.claude):\nrefresh pending.json, status-line flag", fillcolor="#FDE9B8", color="#D68910"];
+    l_hand  [label="/handoff\nnote in .claude/handoffs/", fillcolor="#D6EAF8", color="#2874A6"];
+
+    l_start -> l_ss -> l_pick -> l_plan -> l_crit;
+    l_crit -> l_ok [label="review done / not needed"];
+    l_ok -> l_plan [label="changes", style=dashed];
+    l_ok -> l_exec [label="OK"];
+    l_exec -> l_call -> l_pre -> l_perm -> l_sb;
+    l_sb -> l_close [label="all calls done"];
+    l_close -> l_stop [label="end of turn"];
+    l_stop -> l_hand [label="session ends"];
+    l_hand -> l_start [label="next session", style=dashed, constraint=false];
+  }
+
+  // ---------------- Working rules (CLAUDE.md) ----------------
+  subgraph cluster_rules {
+    label="CLAUDE.md  (global working rules)"; style="rounded,filled"; fillcolor="#FAFAFA"; color="#888888"; fontsize=12;
+    r_map  [label="Project map\nterse CLAUDE.md per repo,\nedits per MAP-RULES.md"];
+    r_chg  [label="Changes\nplan + OK first; phases;\nno git ops unless planned"];
+    r_read [label="Reading\nskip generated/vendored;\ngrep, then read a window"];
+    r_cmd  [label="Commands\nnarrowest check; logs to\nscratchpad, tail/grep"];
+    r_sbx  [label="Sandbox\non a block: stop, name path,\noffer /add-dir > settings > unsandboxed"];
+    r_exp  [label="Exploration\nExplore agent only for 5+\nfiles not edited"];
+    r_rep  [label="Replies\nanswer first, no preamble"];
+    { rank=same; r_map; r_chg; r_read; r_cmd; }
+    { rank=same; r_sbx; r_exp; r_rep; }
+  }
+
+  // ---------------- Skills ----------------
+  subgraph cluster_skills {
+    label="Skills  (skills/)"; style="rounded,filled"; fillcolor="#EBF5FB"; color="#2874A6"; fontsize=12;
+    node [fillcolor="#D6EAF8", color="#2874A6"];
+    s_hand [label="/handoff\nsave session note"];
+    s_pick [label="/pickup\nresume from note"];
+    s_scm  [label="/sync-claude-md\nbuild/repair repo map\n(+ MAP-RULES.md)"];
+    s_srd  [label="/sync-readme\nREADME for humans"];
+    s_ssr  [label="/sync-setup-reports\nupdate these reports"];
+    s_mp   [label="plugin: mattpocock-skills\ntdd, diagnosing-bugs, code-review,\nresearch, grilling, prototype, ...", fillcolor="#FFFFFF"];
+    s_sync [label="claude.ai synced (gitignored)\ndocs, docx, pdf, pptx, xlsx, morning,\nskill-creator, google-workspace, ...", fillcolor="#FFFFFF"];
+    { rank=same; s_hand; s_pick; s_scm; s_srd; s_ssr; }
+    { rank=same; s_mp; s_sync; }
+  }
+
+  // ---------------- Agents ----------------
+  subgraph cluster_agents {
+    label="Agents  (agents/)"; style="rounded,filled"; fillcolor="#F5EEF8"; color="#7D3C98"; fontsize=12;
+    node [fillcolor="#E8DAEF", color="#7D3C98"];
+    a_exp  [label="explain  (sonnet)\nwhat does X do / where used"];
+    a_crit [label="plan-critic  (opus)\nfresh-eyes plan review"];
+    a_rs   [label="report-sync  (sonnet)\nupdates reports/ for\n/sync-setup-reports"];
+  }
+
+  // ---------------- Hooks ----------------
+  subgraph cluster_hooks {
+    label="Hooks  (hooks/, wired in settings.json)"; style="rounded,filled"; fillcolor="#FEF5E7"; color="#D68910"; fontsize=12;
+    node [fillcolor="#FDE9B8", color="#D68910"];
+    h_map  [label="map-status.sh\nSessionStart: map missing/stale note"];
+    h_boot [label="sandbox-bootstrap.sh\nSessionStart: repo allowRead in\n.claude/settings.local.json"];
+    h_git  [label="git-guard.py\nPreToolUse Bash|Agent: prompt on\nbranch/worktree create/move/delete"];
+    h_bg   [label="bg-guard.py\nPreToolUse Edit|Write: bg jobs\ncannot edit existing files"];
+    h_out  [label="outside-repo-guard.py\nPreToolUse Edit|Write: prompt outside\nrepo, in .git/, in Claude config"];
+    h_sl   [label="statusline.sh\nmodel / ctx % / branch / worktree flag\n+ reports stale flag"];
+    h_set  [label="setup-changes.py\nSessionStart|Stop in ~/.claude:\nwrites reports/.sync/pending.json"];
+    { rank=same; h_map; h_boot; h_sl; }
+    { rank=same; h_git; h_bg; h_out; h_set; }
+  }
+
+  // ---------------- Settings + state ----------------
+  subgraph cluster_settings {
+    label="settings.json"; style="rounded,filled"; fillcolor="#F2F2F2"; color="#555555"; fontsize=12;
+    node [fillcolor="#FFFFFF"];
+    c_model [label="model opus, effort medium\ndefaultMode: plan"];
+    c_perm  [label="permissions\ndeny: secrets, browser/mail profiles\nask: EnterWorktree, ssh, scp, unsandboxed\nallow: toolchain reads"];
+    c_sb    [label="sandbox\nfs allow/deny, allowedDomains,\nno escape without prompt"];
+    c_env   [label="env: conda + pip caches in ~/.cache\nplugin: mattpocock-skills"];
+  }
+
+  subgraph cluster_state {
+    label="State on disk"; style="rounded,filled"; fillcolor="#EAF7EE"; color="#1E8449"; fontsize=12;
+    node [fillcolor="#CDEBD3", color="#1E8449"];
+    st_plan [label="plans/\napproved plans"];
+    st_hand [label="<repo>/.claude/handoffs/\nsession notes (git-ignored)"];
+    st_mem  [label="projects/*/memory/\npersistent memory + MEMORY.md"];
+    st_rep  [label="reports/\nsandbox/, setup/"];
+    st_bak  [label="backups/\nreplaced files"];
+  }
+
+  // ---------------- Layout ----------------
+  // Lifecycle nodes share their component's colour (hooks orange, skills blue, sandbox red) instead of
+  // drawing cross edges. Each component cluster is a grid of rank=same rows; invisible edges stack the
+  // clusters in one column right of the lifecycle.
+  { rank=same; c_model; c_perm; c_sb; c_env; }
+  { rank=same; st_plan; st_hand; st_mem; st_rep; st_bak; }
+  edge [style=invis];
+  { rank=same; l_start; r_map; }
+  r_map -> r_sbx; r_sbx -> s_hand; s_hand -> s_mp; s_mp -> a_exp; a_exp -> h_map; h_map -> h_git;
+  h_git -> c_model; c_model -> st_plan;
+  { rank=same; a_crit; a_exp; a_rs; }
+  // left-to-right order inside rows
+  r_map -> r_chg -> r_read -> r_cmd; r_sbx -> r_exp -> r_rep;
+  s_hand -> s_pick -> s_scm -> s_srd -> s_ssr; s_mp -> s_sync; a_crit -> a_exp; a_exp -> a_rs;
+  h_map -> h_boot -> h_sl; h_git -> h_bg -> h_out -> h_set;
+  c_model -> c_perm -> c_sb -> c_env; st_plan -> st_hand -> st_mem -> st_rep -> st_bak;
+}

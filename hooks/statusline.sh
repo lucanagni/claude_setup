@@ -9,5 +9,8 @@ if top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null); then
   # A linked worktree has its own git dir, distinct from the shared common dir.
   [ "$(git -C "$dir" rev-parse --absolute-git-dir)" != "$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)" ] \
     && out+=" · ⚠ worktree $(basename "$top")"
+  # In ~/.claude: setup changed since the reports were last synced (hooks/setup-changes.py).
+  [ "$(realpath "$top")" = "$(realpath ~/.claude)" ] && [ -f ~/.claude/reports/.sync/pending.json ] \
+    && out+=" · ⚠ reports stale"
 fi
 printf '%s' "$out"

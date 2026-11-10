@@ -9,4 +9,5 @@
 !/plans/
 !/.claude/
 !/reports/
+/reports/.sync/
 /.claude/settings.local.json
